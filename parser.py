@@ -1,66 +1,86 @@
-import re
 import pandas as pd
-from datetime import datetime
 
-# Pointing to the massive log file you just generated
-log_file = "massive_auth.logs"
-output_file = "parsed_logs.json"
+# =========================
+# YOUR EXISTING LOGIC
+# =========================
+def parse_line(line):
+    line = line.strip()
 
-# Regex catches newlines and correctly identifies both standard and invalid users
-pattern = re.compile(
-    r"([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+.*?sshd\[\d+\]:\s+(Failed|Accepted) password for (?:invalid user )?(\S+) from\s+([\d\.]+)"
-)
+    # COMMAND EVENT
+    if "command(360)" in line:
+        return {
+            "timestamp": line[:19],
+            "event_type": "command",
+            "command": line.split("command(360):")[-1].strip(),
+            "file": None,
+            "pid": None
+        }
 
-data = []
-current_year = 2026
+    # FILE ANALYSIS EVENT
+    elif "Analyzing file:" in line:
+        return {
+            "timestamp": line[:19],
+            "event_type": "analysis",
+            "command": None,
+            "file": line.split("Analyzing file:")[-1].strip(),
+            "pid": None
+        }
 
-print(f"Reading and parsing '{log_file}'...")
-print("This might take a moment depending on the size of the file...")
+    # START EVENT
+    elif "Started (pid:" in line:
+        pid = line.split("pid:")[-1].replace(")", "").strip()
+        return {
+            "timestamp": line[:19],
+            "event_type": "start",
+            "command": None,
+            "file": None,
+            "pid": pid
+        }
 
-try:
-    with open(log_file, "r", errors="ignore") as f:
-        # Read the entire file content at once
-        content = f.read() 
-        
-        for match in pattern.finditer(content):
-            raw_timestamp = match.group(1) 
-            status = match.group(2)        
-            user = match.group(3)          
-            ip = match.group(4)            
+    return None
 
-            # Normalize spaces in the timestamp
-            clean_timestamp = re.sub(r'\s+', ' ', raw_timestamp)
-            
-            # Format timestamp to YYYY-MM-DD HH:MM:SS
-            try:
-                date_obj = datetime.strptime(f"{current_year} {clean_timestamp}", "%Y %b %d %H:%M:%S")
-                formatted_timestamp = date_obj.strftime("%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                formatted_timestamp = clean_timestamp # Fallback
 
-            # Map to the specific events required by the project
-            event = "failed_login" if status == "Failed" else "successful_login"
+def parse_file(file_path):
+    parsed = []
 
-            data.append({
-                "timestamp": formatted_timestamp,
-                "user": user,
-                "ip": ip,
-                "event": event,
-                "service": "sshd" 
-            })
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            result = parse_line(line)
+            if result:
+                parsed.append(result)
 
-    # Convert to DataFrame
+    return parsed
+
+
+# =========================
+# MAIN EXECUTION
+# =========================
+if __name__ == "__main__":
+
+    log_file = "wazuh_test_logs.log"
+
+    print("🚀 Parsing Wazuh logs...")
+
+    data = parse_file(log_file)
+
+    # =========================
+    # CONVERT TO DATAFRAME
+    # =========================
     df = pd.DataFrame(data)
-    
-    if not df.empty:
-        # Export to structured JSON [cite: 53]
-        df.to_json(output_file, orient="records", indent=4)
-        print(f"\nSuccess! Total parsed SSH events: {len(df)}")
-        print(f"Data successfully exported to {output_file}")
-        print("\nPreview of the parsed data:")
-        print(df.head())
-    else:
-        print("\nNo matching SSH logs found. Please check your regex and file format.")
 
-except FileNotFoundError:
-    print(f"Error: '{log_file}' not found. Please ensure your log generator script finished running.")
+    # =========================
+    # CLEANING
+    # =========================
+    if df.empty:
+        print("❌ No logs parsed. Check format.")
+    else:
+        df.fillna("null", inplace=True)
+
+        # =========================
+        # SAVE OUTPUT FOR FEATURE ENGINEERING
+        # =========================
+        df.to_csv("parsed_logs.csv", index=False)
+
+        print("✅ parsed_logs.csv created successfully!")
+        print(f"📊 Total events parsed: {len(df)}")
+        print(df.head())

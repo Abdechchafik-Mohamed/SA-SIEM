@@ -1,1 +1,7 @@
-.DS_Store
+features.csv
+parsed_logs.csv
+wazuh_raw_logs.log
+wazuh_test_logs.log
+logs.txt
+new_logs.txt
+output
